@@ -23,7 +23,7 @@ import (
 var changedDir bool = false
 var command string = ""
 var consoleOut string = ""
-var session server_ssh.ServerSession
+var AppSession server_ssh.ServerSession
 
 func SettingsButton() fyne.CanvasObject {
 	btn := widget.NewButton("Settings", func() {})
@@ -180,7 +180,6 @@ func ShowFileEditorWindow(f os.DirEntry, app fyne.App) {
 			os.WriteFile(f.Name(), []byte(fileEditor.Text), os.ModeCharDevice)
 			eWindow.Close()
 		})) // save button, exit button, save and exit button
-
 	eWindowContent := container.New(layout.NewBorderLayout(fileTools, nil, nil, nil), fileTools, fileEditor)
 	eWindow.SetContent(eWindowContent)
 	eWindow.Show()
@@ -188,7 +187,7 @@ func ShowFileEditorWindow(f os.DirEntry, app fyne.App) {
 
 func ShellWindow(app fyne.App) fyne.Window {
 	window := app.NewWindow("SwissArmyShell")
-	window.Resize(fyne.NewSize(1000, 1000))
+
 	mainContStart := func() {
 		window.SetContent(MainShellWindowContent(app))
 		go func() {
@@ -201,9 +200,35 @@ func ShellWindow(app fyne.App) fyne.Window {
 		}()
 	}
 	// first the login...
-	loginForm := container.New(layout.NewVBoxLayout(), widget.NewEntry(), widget.NewEntry(), widget.NewButton("Login", func() {
-		mainContStart()
+	var username string
+	var password string
+	var target string
+	usernameEntry := widget.NewEntry()
+	usernameEntry.OnChanged = func(val string) {
+		username = val
+	}
+	usernameEntry.PlaceHolder = "Enter username"
+	passEntry := widget.NewEntry()
+	passEntry.Password = true
+	passEntry.OnChanged = func(val string) {
+		password = val
+	}
+	passEntry.PlaceHolder = "Enter password"
+	targetEntry := widget.NewEntry()
+	targetEntry.PlaceHolder = "Enter server"
+	targetEntry.OnChanged = func(val string) {
+		target = val
+	}
+	loginForm := container.New(layout.NewVBoxLayout(), usernameEntry, passEntry, targetEntry, widget.NewButton("Login", func() {
+		sesh, err := server_ssh.ConnectSSH(username, password, target)
+		AppSession = sesh
+		if err != nil {
+			println("Terrible misfortune")
+		} else {
+			mainContStart()
+		}
 	}))
+	window.Resize(fyne.NewSize(1000, 1000))
 	window.SetContent(loginForm)
 	return window
 }
