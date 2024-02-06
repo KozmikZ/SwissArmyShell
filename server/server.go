@@ -1,6 +1,7 @@
-package server_ssh
+package server
 
 import (
+	"bytes"
 	"strconv"
 	"strings"
 
@@ -20,27 +21,38 @@ func ConnectSSH(username string, password string, target string) (ServerSession,
 		println("Fatal error during ssh connection")
 		return ServerSession{}, err
 	}
+	var wd string
+	var b bytes.Buffer
 	session, err := client.NewSession()
 	if err != nil {
 		println("Failed to estabilish session")
 	}
-	return ServerSession{ssh: session}, err
+	defer session.Close()
+	session.Stdout = &b
+	erro := session.Run("pwd")
+	if erro != nil {
+		println(erro)
+	}
+	wd = b.String()[:len(b.String())-1]
+	return ServerSession{ssh: client, config: config, Wd: wd}, err
 }
 
 type ServerSession struct {
-	ssh *ssh.Session
+	config *ssh.ClientConfig
+	ssh    *ssh.Client
+	Wd     string
 }
 
 type File struct {
-	name     string
-	mode     string
-	modified string
-	size     int
-	isDir    bool
+	Name     string
+	Mode     string
+	Modified string
+	Size     int64
+	IsDir    bool
 }
 
-func (s ServerSession) ListFiles() []File {
-	rawOut, _ := s.ssh.CombinedOutput("ls -la")
+func (s *ServerSession) ListFiles() []File {
+	rawOut, _ := s.ExecuteRaw("ls -la")
 	rawStrOut := string(rawOut)
 	rawEntries := strings.Split(rawStrOut, "\n")
 	numEntries := len(rawEntries) - 1
@@ -48,56 +60,66 @@ func (s ServerSession) ListFiles() []File {
 	for i := 1; i < numEntries; i++ {
 		newRawEntry := rawEntries[i]
 		fields := strings.Split(newRawEntry, " ")
-		isDir := string(fields[0][0]) == "d"
+		IsDir := string(fields[0][0]) == "d"
 		var dateMod string
-		var size int
-		if isDir {
+		var Size int64
+		if IsDir {
 			dateMod = fields[5] + " " + fields[7] + " " + fields[8]
-			size = 4096
+			Size = 4096
 		} else {
 			dateMod = fields[6] + " " + fields[8] + " " + fields[9]
-			size, _ = strconv.Atoi(fields[5])
+			tmp, _ := strconv.Atoi(fields[5])
+			Size = int64(tmp)
 		}
 
-		files = append(files, File{name: fields[len(fields)-1],
-			mode:     fields[0],
-			modified: dateMod,
-			size:     size,
-			isDir:    isDir})
+		files = append(files, File{Name: fields[len(fields)-1],
+			Mode:     fields[0],
+			Modified: dateMod,
+			Size:     Size,
+			IsDir:    IsDir})
 	}
 	return files
 }
-func (s ServerSession) GetWD() string {
-	rawOut, _ := s.ssh.CombinedOutput("pwd")
-	return string(rawOut)
+func (s *ServerSession) GetWD() string {
+	rawOut, _ := s.ExecuteRaw("pwd")
+	s.Wd = rawOut[:len(rawOut)-1]
+	return s.Wd
 }
 
-func (s ServerSession) ChangeWD(WD string) {
-	s.ssh.CombinedOutput("cd " + WD)
+func (s *ServerSession) ChangeWD(WD string) {
+	str, _ := s.ExecuteRaw("cd " + WD + " && pwd")
+	s.Wd = str
 }
 
-func (s ServerSession) readFileInput(name string) string {
-	rawOut, _ := s.ssh.CombinedOutput("cat " + name)
-	return string(rawOut)
+func (s *ServerSession) ReadFileInput(name string) (string, error) {
+	rawOut, err := s.ExecuteRaw("cat " + name)
+	return string(rawOut), err
 }
 
-func (s ServerSession) reWriteFile(name string, content string) {
-	s.ssh.CombinedOutput("echo " + content + "> " + name)
+func (s *ServerSession) ReWriteFile(name string, content string) {
+	s.ExecuteRaw("echo " + content + "> " + name)
 }
 
-func (s ServerSession) executeRaw(command string) ([]byte, error) {
-	out, err := s.ssh.CombinedOutput(command)
-	return out, err
-}
-
-func main() {
-	session, _ := ConnectSSH("test", "test", "localhost:22")
-	for _, file := range session.ListFiles() {
-		println(file.name)
-		println(file.isDir)
-		println(file.mode)
-		println(file.modified)
-		println(file.size)
+func (s *ServerSession) ExecuteRaw(command string) (string, error) {
+	var b bytes.Buffer
+	session, err := s.ssh.NewSession()
+	if err != nil {
+		println("Failed to estabilish session")
 	}
-
+	defer session.Close()
+	finalCmd := "cd " + s.Wd + " && " + command
+	finalCmd = strings.TrimRight(finalCmd, "\n")
+	// Attach buffer to session's stdout and stderr
+	session.Stdout = &b
+	session.Stderr = &b
+	println(finalCmd)
+	err = session.Run(finalCmd)
+	if err != nil {
+		println("Error ocurred")
+		println(err)
+		return "", err
+	} else {
+		println(b.String())
+	}
+	return b.String(), err
 }

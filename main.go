@@ -2,12 +2,7 @@ package main
 
 import (
 	"image/color"
-	"io/fs"
-	"os"
-	"os/exec"
-	"strings"
 	server_ssh "swiss-army-shell/server"
-	"swiss-army-shell/shell"
 	"swiss-army-shell/utils"
 	"time"
 
@@ -49,7 +44,7 @@ func AppBar() fyne.CanvasObject { // appbar prototype
 	margin := canvas.NewRectangle(color.Transparent)
 	margin.Resize(fyne.NewSize(100, 10))
 	bg := container.New(layout.NewBorderLayout(nil, container.NewVBox(margin, border), nil, nil))
-	str, _ := os.Getwd()
+	str := AppSession.Wd
 	label := widget.NewLabel(str)
 	label.TextStyle = fyne.TextStyle{
 		Bold:      true,
@@ -64,9 +59,9 @@ func AppBar() fyne.CanvasObject { // appbar prototype
 
 func FileListView(app fyne.App) fyne.CanvasObject {
 	var btns []fyne.CanvasObject
-	filesList, _ := shell.ListFiles()
+	filesList := AppSession.ListFiles()
 	for _, f := range filesList {
-		if f.IsDir() {
+		if f.IsDir {
 			btns = append(btns, FolderButton(f, app))
 		} else {
 			btns = append(btns, FileButton(f, app))
@@ -75,9 +70,8 @@ func FileListView(app fyne.App) fyne.CanvasObject {
 	return container.NewVScroll(container.NewVBox(btns...))
 }
 
-func FileButton(f os.DirEntry, app fyne.App) fyne.CanvasObject { // a file will be passed into this
-	fInfo, _ := f.Info()
-	fileButtonContent := container.New(layout.NewHBoxLayout(), widget.NewIcon(theme.FileIcon()), widget.NewLabel(f.Name()), layout.NewSpacer(), PropertiesButton(fInfo, app))
+func FileButton(f server_ssh.File, app fyne.App) fyne.CanvasObject { // a file will be passed into this
+	fileButtonContent := container.New(layout.NewHBoxLayout(), widget.NewIcon(theme.FileIcon()), widget.NewLabel(f.Name), layout.NewSpacer(), PropertiesButton(f, app))
 	fileButton := NewWidgetButton(func() {
 		ShowFileEditorWindow(f, app)
 	}, fileButtonContent)
@@ -86,35 +80,34 @@ func FileButton(f os.DirEntry, app fyne.App) fyne.CanvasObject { // a file will 
 
 func BackButton() fyne.CanvasObject {
 	return widget.NewButton("Back", func() {
-		os.Chdir("../")
+		AppSession.ChangeWD("../")
 		changedDir = true
 	})
 }
 
-func PropertiesButton(p fs.FileInfo, app fyne.App) fyne.CanvasObject {
+func PropertiesButton(p server_ssh.File, app fyne.App) fyne.CanvasObject {
 	propertyClosure := func() {
 		pWin := app.NewWindow("Properties")
 		pWinCont := container.New(layout.NewVBoxLayout(),
-			widget.NewLabel("File name: "+p.Name()),
-			widget.NewLabel("Size: "+utils.BytesHumanReadable(p.Size())),
-			widget.NewLabel("Last modified: "+p.ModTime().String()),
-			widget.NewLabel("Permissions: "+p.Mode().String()))
+			widget.NewLabel("File name: "+p.Name),
+			widget.NewLabel("Size: "+utils.BytesHumanReadable(p.Size)),
+			widget.NewLabel("Last modified: "+p.Modified),
+			widget.NewLabel("Permissions: "+p.Mode))
 		pWin.SetContent(pWinCont)
 		pWin.Show()
 	}
 	return widget.NewButtonWithIcon("", theme.ListIcon(), propertyClosure)
 }
 
-func FolderButton(f os.DirEntry, app fyne.App) fyne.CanvasObject {
-	fInfo, _ := f.Info()
+func FolderButton(f server_ssh.File, app fyne.App) fyne.CanvasObject {
 	folderButtonContent := container.New(
 		layout.NewHBoxLayout(),
 		widget.NewIcon(theme.FolderIcon()),
-		widget.NewLabel(f.Name()),
+		widget.NewLabel(f.Name),
 		layout.NewSpacer(),
-		PropertiesButton(fInfo, app))
+		PropertiesButton(f, app))
 	folderButton := NewWidgetButton(func() {
-		os.Chdir(f.Name())
+		AppSession.ChangeWD(f.Name)
 		changedDir = true
 	}, folderButtonContent)
 	return folderButton
@@ -132,39 +125,39 @@ func ExecutiveTextBox() fyne.CanvasObject {
 
 func ExecutionButton() fyne.CanvasObject {
 	button := widget.NewButton("Execute", func() {
-		argv := strings.Split(command, " ")
-		cOut, err := exec.Command(argv[0], argv[1:]...).Output()
-		if err == nil {
-			consoleOut = string(cOut)
-		} else {
-			consoleOut = "Error"
+		cOut, err := AppSession.ExecuteRaw(command)
+		consoleOut = string(cOut)
+		if err != nil {
+			println("Error occurred during execution")
+			println(consoleOut)
 		}
-		println(consoleOut)
 	})
 	size := fyne.NewSize(100, 38)
 	packagedButton := container.New(layout.NewGridWrapLayout(size), button)
 	return packagedButton
 }
 
-func ExecutiveShellWidget() fyne.CanvasObject {
+func ExecutiveShellWidget(app fyne.App) fyne.CanvasObject {
 	etb := ExecutiveTextBox()
 	eb := ExecutionButton()
 	hbox := container.NewHBox(etb, eb)
-	return container.New(layout.NewCenterLayout(), hbox)
+	vsplit := container.NewVSplit(widget.NewLabel(consoleOut), hbox)
+	return container.New(layout.NewCenterLayout(), vsplit)
 }
 
 func MainShellWindowContent(app fyne.App) fyne.CanvasObject {
 	flv := FileListView(app)
-	esw := ExecutiveShellWidget()
+	esw := ExecutiveShellWidget(app)
 	ab := AppBar()
 	mainWinCont := container.New(layout.NewBorderLayout(ab, esw, nil, nil), flv, esw, ab)
 	return mainWinCont
 }
 
-func ShowFileEditorWindow(f os.DirEntry, app fyne.App) {
-	eWindow := app.NewWindow(f.Name())
+func ShowFileEditorWindow(f server_ssh.File, app fyne.App) {
+	eWindow := app.NewWindow(f.Name)
+	eWindow.Resize(fyne.NewSize(1000, 1000))
 	fileEditor := widget.NewEntry()
-	bytes, err := os.ReadFile(f.Name()) // change for changing cwd
+	bytes, err := AppSession.ReadFileInput(f.Name) // change for changing cwd
 	if err == nil {
 		fileEditor.Text = string(bytes)
 	} else {
@@ -172,12 +165,12 @@ func ShowFileEditorWindow(f os.DirEntry, app fyne.App) {
 		eWindow.Show()
 	}
 	fileTools := container.New(layout.NewHBoxLayout(), widget.NewButtonWithIcon("Save", theme.DocumentSaveIcon(), func() {
-		os.WriteFile(f.Name(), []byte(fileEditor.Text), os.ModeCharDevice)
+		AppSession.ReWriteFile(f.Name, fileEditor.Text)
 	}),
 		widget.NewButtonWithIcon("Exit", theme.NavigateBackIcon(), func() {
 			eWindow.Close()
 		}), widget.NewButtonWithIcon("Save & Exit", theme.DocumentCreateIcon(), func() {
-			os.WriteFile(f.Name(), []byte(fileEditor.Text), os.ModeCharDevice)
+			AppSession.ReWriteFile(f.Name, fileEditor.Text)
 			eWindow.Close()
 		})) // save button, exit button, save and exit button
 	eWindowContent := container.New(layout.NewBorderLayout(fileTools, nil, nil, nil), fileTools, fileEditor)
