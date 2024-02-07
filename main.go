@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -19,6 +20,7 @@ var changedDir bool = false
 var command string = ""
 var consoleOut string = ""
 var AppSession server_ssh.ServerSession
+var MainWindow fyne.Window
 
 func SettingsButton() fyne.CanvasObject {
 	btn := widget.NewButton("Settings", func() {})
@@ -59,7 +61,10 @@ func AppBar() fyne.CanvasObject { // appbar prototype
 
 func FileListView(app fyne.App) fyne.CanvasObject {
 	var btns []fyne.CanvasObject
-	filesList := AppSession.ListFiles()
+	filesList, err := AppSession.ListFiles()
+	if err != nil {
+		println("error ocurred during file listing")
+	}
 	for _, f := range filesList {
 		if f.IsDir {
 			btns = append(btns, FolderButton(f, app))
@@ -80,7 +85,9 @@ func FileButton(f server_ssh.File, app fyne.App) fyne.CanvasObject { // a file w
 
 func BackButton() fyne.CanvasObject {
 	return widget.NewButton("Back", func() {
-		AppSession.ChangeWD("../")
+		if AppSession.ChangeWD("../") != nil {
+			println("A fucking Serious Problem")
+		}
 		changedDir = true
 	})
 }
@@ -107,7 +114,12 @@ func FolderButton(f server_ssh.File, app fyne.App) fyne.CanvasObject {
 		layout.NewSpacer(),
 		PropertiesButton(f, app))
 	folderButton := NewWidgetButton(func() {
-		AppSession.ChangeWD(f.Name)
+		println("Changing from", AppSession.Wd)
+		err := AppSession.ChangeWD(f.Name)
+		if err != nil {
+			println("Serious problem")
+			println(err.Error())
+		}
 		changedDir = true
 	}, folderButtonContent)
 	return folderButton
@@ -118,12 +130,12 @@ func ExecutiveTextBox() fyne.CanvasObject {
 	entry.OnChanged = func(s string) {
 		command = s
 	}
-	size := fyne.NewSize(1500, 38)
+	size := fyne.NewSize(800, 38)
 	packagedEntry := container.New(layout.NewGridWrapLayout(size), entry)
 	return packagedEntry
 }
 
-func ExecutionButton() fyne.CanvasObject {
+func ExecutionButton(app fyne.App) fyne.CanvasObject {
 	button := widget.NewButton("Execute", func() {
 		cOut, err := AppSession.ExecuteRaw(command)
 		consoleOut = string(cOut)
@@ -131,6 +143,7 @@ func ExecutionButton() fyne.CanvasObject {
 			println("Error occurred during execution")
 			println(consoleOut)
 		}
+		dialog.ShowInformation("Output", consoleOut, MainWindow)
 	})
 	size := fyne.NewSize(100, 38)
 	packagedButton := container.New(layout.NewGridWrapLayout(size), button)
@@ -139,10 +152,9 @@ func ExecutionButton() fyne.CanvasObject {
 
 func ExecutiveShellWidget(app fyne.App) fyne.CanvasObject {
 	etb := ExecutiveTextBox()
-	eb := ExecutionButton()
+	eb := ExecutionButton(app)
 	hbox := container.NewHBox(etb, eb)
-	vsplit := container.NewVSplit(widget.NewLabel(consoleOut), hbox)
-	return container.New(layout.NewCenterLayout(), vsplit)
+	return container.New(layout.NewCenterLayout(), hbox)
 }
 
 func MainShellWindowContent(app fyne.App) fyne.CanvasObject {
@@ -155,7 +167,7 @@ func MainShellWindowContent(app fyne.App) fyne.CanvasObject {
 
 func ShowFileEditorWindow(f server_ssh.File, app fyne.App) {
 	eWindow := app.NewWindow(f.Name)
-	eWindow.Resize(fyne.NewSize(1000, 1000))
+	eWindow.Resize(fyne.NewSize(500, 500))
 	fileEditor := widget.NewEntry()
 	bytes, err := AppSession.ReadFileInput(f.Name) // change for changing cwd
 	if err == nil {
@@ -180,7 +192,7 @@ func ShowFileEditorWindow(f server_ssh.File, app fyne.App) {
 
 func ShellWindow(app fyne.App) fyne.Window {
 	window := app.NewWindow("SwissArmyShell")
-
+	MainWindow = window
 	mainContStart := func() {
 		window.SetContent(MainShellWindowContent(app))
 		go func() {
@@ -213,7 +225,8 @@ func ShellWindow(app fyne.App) fyne.Window {
 		target = val
 	}
 	loginForm := container.New(layout.NewVBoxLayout(), usernameEntry, passEntry, targetEntry, widget.NewButton("Login", func() {
-		sesh, err := server_ssh.ConnectSSH(username, password, target)
+		sesh, err := server_ssh.ConnectSSH(username, password, target, "")
+		sesh.ConnectSFTP()
 		AppSession = sesh
 		if err != nil {
 			println("Terrible misfortune")
@@ -221,7 +234,7 @@ func ShellWindow(app fyne.App) fyne.Window {
 			mainContStart()
 		}
 	}))
-	window.Resize(fyne.NewSize(1000, 1000))
+	window.Resize(fyne.NewSize(500, 500))
 	window.SetContent(loginForm)
 	return window
 }
