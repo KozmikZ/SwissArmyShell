@@ -154,6 +154,22 @@ func (s *ServerSession) ReWriteFile(filePath string, content string) error {
 	return err
 }
 
+func (s *ServerSession) RemoveFileTarget(target string) error {
+	fullPath := path.Join(s.Wd, target)
+	isDirectory := false
+	_, err := s.sftp.ReadDir(fullPath)
+	if err != nil {
+		isDirectory = true
+	}
+	var err2 error
+	if isDirectory {
+		err2 = s.sftp.RemoveDirectory(fullPath)
+	} else {
+		err2 = s.sftp.Remove(fullPath)
+	}
+	return err2
+}
+
 // ExecuteRaw executes a command in the server's shell and returns its string output
 func (s *ServerSession) ExecuteRaw(command string) (string, error) {
 	session, err := s.ssh.NewSession()

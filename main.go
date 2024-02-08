@@ -76,7 +76,7 @@ func FileListView(app fyne.App) fyne.CanvasObject {
 }
 
 func FileButton(f server_ssh.File, app fyne.App) fyne.CanvasObject { // a file will be passed into this
-	fileButtonContent := container.New(layout.NewHBoxLayout(), widget.NewIcon(theme.FileIcon()), widget.NewLabel(f.Name), layout.NewSpacer(), PropertiesButton(f, app))
+	fileButtonContent := container.New(layout.NewHBoxLayout(), widget.NewIcon(theme.FileIcon()), widget.NewLabel(f.Name), layout.NewSpacer(), DeleteButton(f), PropertiesButton(f, app))
 	fileButton := NewWidgetButton(func() {
 		ShowFileEditorWindow(f, app)
 	}, fileButtonContent)
@@ -86,7 +86,7 @@ func FileButton(f server_ssh.File, app fyne.App) fyne.CanvasObject { // a file w
 func BackButton() fyne.CanvasObject {
 	return widget.NewButton("Back", func() {
 		if AppSession.ChangeWD("../") != nil {
-			println("A fucking Serious Problem")
+			println("Error ocurred during WD changing")
 		}
 		changedDir = true
 	})
@@ -106,15 +106,26 @@ func PropertiesButton(p server_ssh.File, app fyne.App) fyne.CanvasObject {
 	return widget.NewButtonWithIcon("", theme.ListIcon(), propertyClosure)
 }
 
+func DeleteButton(f server_ssh.File) fyne.CanvasObject {
+	return widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+		dialog.ShowConfirm("Delete", "Do you wish to delete the file/folder?", func(b bool) {
+			if b {
+				AppSession.RemoveFileTarget(f.Name)
+				MainWindow.Content().Refresh()
+			}
+		}, MainWindow)
+	})
+}
+
 func FolderButton(f server_ssh.File, app fyne.App) fyne.CanvasObject {
 	folderButtonContent := container.New(
 		layout.NewHBoxLayout(),
 		widget.NewIcon(theme.FolderIcon()),
 		widget.NewLabel(f.Name),
 		layout.NewSpacer(),
+		DeleteButton(f),
 		PropertiesButton(f, app))
 	folderButton := NewWidgetButton(func() {
-		println("Changing from", AppSession.Wd)
 		err := AppSession.ChangeWD(f.Name)
 		if err != nil {
 			println("Serious problem")
