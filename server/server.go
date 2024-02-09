@@ -83,7 +83,6 @@ func (s *ServerSession) ListFiles() ([]File, error) {
 	files := []File{}
 
 	// List the files in the current directory
-	println(s.Wd)
 	fileInfos, err := s.sftp.ReadDir(s.Wd)
 	if err != nil {
 		return nil, err
