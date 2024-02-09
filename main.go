@@ -237,13 +237,20 @@ func ShellWindow(app fyne.App) fyne.Window {
 	}
 	loginForm := container.New(layout.NewVBoxLayout(), usernameEntry, passEntry, targetEntry, widget.NewButton("Login", func() {
 		sesh, err := server_ssh.ConnectSSH(username, password, target, "")
-		sesh.ConnectSFTP()
 		AppSession = sesh
 		if err != nil {
 			println("Terrible misfortune")
+			dialog.ShowInformation("Login failed", "Failed to log in, check your credentials or if your server is still active", window)
+			return
+		}
+		err1 := sesh.ConnectSFTP()
+		if err1 != nil {
+			dialog.ShowInformation("Login failed", "Failed to log in, check your credentials or if your server is still active", window)
+			return
 		} else {
 			mainContStart()
 		}
+
 	}))
 	window.Resize(fyne.NewSize(500, 500))
 	window.SetContent(loginForm)
